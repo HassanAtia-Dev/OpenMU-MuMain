@@ -1,0 +1,25 @@
+# Build outputs
+**/bin/
+**/obj/
+**/out/
+build/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake-build-*/
+
+# .NET
+.vs/
+*.user
+*.suo
+
+# Generated client bindings/codegen output
+client/src/generated/
+client/src/source/Dotnet/PacketFunctions_*.h
+client/src/source/Dotnet/PacketFunctions_*.cpp
+client/src/source/Dotnet/PacketBindings_*.h
+
+# OS/editor
+.DS_Store
+Thumbs.db

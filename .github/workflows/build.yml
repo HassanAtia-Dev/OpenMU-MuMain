@@ -1,0 +1,70 @@
+name: Build OpenMU + MuMain
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    name: Server (.NET 10)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        working-directory: server/src
+        run: dotnet restore MUnique.OpenMU.sln
+
+      - name: Build
+        working-directory: server/src
+        run: dotnet build MUnique.OpenMU.sln --configuration Release --no-restore
+
+  client:
+    name: Client Windows (${{ matrix.arch }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, Win32]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup CMake
+        uses: lukka/get-cmake@v4.0.3
+        with:
+          cmakeVersion: '3.31.6'
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S client -B build/client-${{ matrix.arch }} -G "Visual Studio 17 2022" -A ${{ matrix.arch }} -DENABLE_EDITOR=OFF
+
+      - name: Build
+        run: cmake --build build/client-${{ matrix.arch }} --config Release --parallel
+
+      - name: Upload client artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MuMain-${{ matrix.arch }}-Release
+          path: build/client-${{ matrix.arch }}/src/Release/
+          if-no-files-found: warn

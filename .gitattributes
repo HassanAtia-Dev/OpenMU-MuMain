@@ -1,0 +1,7 @@
+* text=auto
+*.sln text eol=crlf
+*.cs text eol=lf
+*.cpp text eol=lf
+*.h text eol=lf
+*.cmake text eol=lf
+*.yml text eol=lf
