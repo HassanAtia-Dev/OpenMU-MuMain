@@ -11,11 +11,26 @@ dotnet_diagnostic.SA1516.severity = none
 # SA1615: Element return value should be documented
 dotnet_diagnostic.SA1615.severity = suggestion
 
+# SA1201: A field should not follow a method
+dotnet_diagnostic.SA1201.severity = none
+
+# SA1203: Constant fields should appear before non-constant fields
+dotnet_diagnostic.SA1203.severity = none
+
+# SA1100: Do not prefix calls with base
+dotnet_diagnostic.SA1100.severity = suggestion
+
+# SA1513: Closing brace should be followed by blank line
+dotnet_diagnostic.SA1513.severity = none
+
+# SA1649: File name should match first type name
+dotnet_diagnostic.SA1649.severity = suggestion
+
 # VSTHRD103: Call async methods when in an async method
 dotnet_diagnostic.VSTHRD103.severity = error
 
 # VSTHRD111: Use ConfigureAwait(bool)
-dotnet_diagnostic.VSTHRD111.severity = warning
+dotnet_diagnostic.VSTHRD111.severity = none
 
 [*.xml]
 
