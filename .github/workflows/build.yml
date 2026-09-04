@@ -12,6 +12,7 @@ jobs:
   server:
     name: Server (.NET 10)
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,21 +22,25 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Restore
+      # Build the main server application instead of the incomplete
+      # solution which references test projects not included in this repository.
+      - name: Restore Server
         working-directory: server/src
-        run: dotnet restore MUnique.OpenMU.sln
+        run: dotnet restore Startup/MUnique.OpenMU.Startup.csproj
 
-      - name: Build
+      - name: Build Server
         working-directory: server/src
-        run: dotnet build MUnique.OpenMU.sln --configuration Release --no-restore
+        run: dotnet build Startup/MUnique.OpenMU.Startup.csproj --configuration Release --no-restore
+
 
   client:
     name: Client Windows (${{ matrix.arch }})
     runs-on: windows-latest
+
     strategy:
       fail-fast: false
       matrix:
-        arch: [x64, Win32]
+        arch: [x86, x64]
 
     steps:
       - name: Checkout
@@ -54,17 +59,24 @@ jobs:
         with:
           cmakeVersion: '3.31.6'
 
-      - name: Configure
+      - name: Setup Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - name: Configure Client
+        working-directory: client
         shell: pwsh
         run: |
-          cmake -S client -B build/client-${{ matrix.arch }} -G "Visual Studio 17 2022" -A ${{ matrix.arch }} -DENABLE_EDITOR=OFF
+          cmake --preset windows-${{ matrix.arch }}
 
-      - name: Build
-        run: cmake --build build/client-${{ matrix.arch }} --config Release --parallel
+      - name: Build Client
+        working-directory: client
+        shell: pwsh
+        run: |
+          cmake --build --preset windows-${{ matrix.arch }}-release --parallel
 
-      - name: Upload client artifact
+      - name: Upload Client Artifact
         uses: actions/upload-artifact@v4
         with:
           name: MuMain-${{ matrix.arch }}-Release
-          path: build/client-${{ matrix.arch }}/src/Release/
+          path: client/out/build/windows-${{ matrix.arch }}/Release/
           if-no-files-found: warn
