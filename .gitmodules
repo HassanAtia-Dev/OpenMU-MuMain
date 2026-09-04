@@ -1,0 +1,9 @@
+[submodule "client/src/ThirdParty/SDL"]
+	path = client/src/ThirdParty/SDL
+	url = https://github.com/libsdl-org/SDL.git
+[submodule "client/src/ThirdParty/SDL_mixer"]
+	path = client/src/ThirdParty/SDL_mixer
+	url = https://github.com/libsdl-org/SDL_mixer.git
+[submodule "client/src/ThirdParty/imgui"]
+	path = client/src/ThirdParty/imgui
+	url = https://github.com/ocornut/imgui.git
