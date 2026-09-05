@@ -29,7 +29,9 @@
 #ifdef _WIN32
 inline HINSTANCE get_munique_client_library_handle()
 {
-    static const HINSTANCE handle = LoadLibrary(L"MUnique.Client.Library.dll");
+    // Explicit LoadLibraryW: MinGW defaults to the ANSI LoadLibraryA when
+    // UNICODE is not defined, which rejects a wide string literal.
+    static const HINSTANCE handle = LoadLibraryW(L"MUnique.Client.Library.dll");
     return handle;
 }
 #else
