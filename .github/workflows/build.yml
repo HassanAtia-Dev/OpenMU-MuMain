@@ -22,8 +22,6 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      # Build the main server application instead of the incomplete
-      # solution which references test projects not included in this repository.
       - name: Restore Server
         working-directory: server/src
         run: dotnet restore Startup/MUnique.OpenMU.Startup.csproj
@@ -31,7 +29,6 @@ jobs:
       - name: Build Server
         working-directory: server/src
         run: dotnet build Startup/MUnique.OpenMU.Startup.csproj --configuration Release --no-restore
-
 
   client:
     name: Client Windows (${{ matrix.arch }})
@@ -49,26 +46,29 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      # Vendored headers (GLEW, turbojpeg, ...) are not shipped in this fork.
-      # Pull them from upstream MuMain so source builds can compile.
       - name: Fetch client dependencies from upstream MuMain
         shell: pwsh
         run: |
-          $deps = "client/src/dependencies"
-          if (-not (Test-Path "$deps/include/gl/glew.h")) {
-            Write-Host "Fetching src/dependencies from sven-n/MuMain..."
-            git clone --depth 1 --filter=blob:none --sparse https://github.com/sven-n/MuMain.git "$env:RUNNER_TEMP/mumain"
-            Push-Location "$env:RUNNER_TEMP/mumain"
-            git sparse-checkout set src/dependencies
-            git checkout
-            Pop-Location
-            New-Item -ItemType Directory -Force -Path "client/src" | Out-Null
-            Copy-Item -Recurse -Force "$env:RUNNER_TEMP/mumain/src/dependencies" "client/src/dependencies"
-            Write-Host "Dependencies installed."
-            Get-ChildItem -Recurse "client/src/dependencies" | Select-Object -First 20 FullName
-          } else {
-            Write-Host "dependencies already present, skipping fetch"
+          $glew = "client/src/dependencies/include/gl/glew.h"
+          if (Test-Path $glew) {
+            Write-Host "dependencies already present"
+            exit 0
           }
+          Write-Host "Downloading dependencies from sven-n/MuMain..."
+          $zip = Join-Path $env:RUNNER_TEMP "mumain.zip"
+          $out = Join-Path $env:RUNNER_TEMP "mumain-extract"
+          Invoke-WebRequest -Uri "https://github.com/sven-n/MuMain/archive/refs/heads/main.zip" -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $out -Force
+          $src = Get-ChildItem $out -Directory | Select-Object -First 1
+          $depsSrc = Join-Path $src.FullName "src/dependencies"
+          if (-not (Test-Path (Join-Path $depsSrc "include/gl/glew.h"))) {
+            Write-Error "Failed to locate src/dependencies in upstream archive"
+            exit 1
+          }
+          New-Item -ItemType Directory -Force -Path "client/src" | Out-Null
+          Copy-Item -Recurse -Force $depsSrc "client/src/dependencies"
+          Write-Host "Installed:"
+          Get-ChildItem -Recurse "client/src/dependencies/include" | Select-Object -First 15 FullName
 
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
@@ -86,14 +86,12 @@ jobs:
       - name: Configure Client
         working-directory: client
         shell: pwsh
-        run: |
-          cmake --preset windows-${{ matrix.arch }}
+        run: cmake --preset windows-${{ matrix.arch }}
 
       - name: Build Client
         working-directory: client
         shell: pwsh
-        run: |
-          cmake --build --preset windows-${{ matrix.arch }}-release --parallel
+        run: cmake --build --preset windows-${{ matrix.arch }}-release --parallel
 
       - name: Upload Client Artifact
         uses: actions/upload-artifact@v4
