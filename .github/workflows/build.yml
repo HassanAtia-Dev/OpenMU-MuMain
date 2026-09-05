@@ -51,17 +51,34 @@ jobs:
         run: |
           $needDeps = -not (Test-Path "client/src/dependencies/include/gl/glew.h")
           $needPackets = -not (Test-Path "client/src/source/Dotnet/PacketFunctions_ChatServer.h")
-          # Always restore CharMakeWin from upstream (has MU_C16; local copy was truncated)
-          $needCharMake = $true
-          $cmw = "client/src/source/Character/CharMakeWin.cpp"
-          if (Test-Path $cmw) {
-            $lineCount = (Get-Content $cmw | Measure-Object -Line).Lines
-            if ($lineCount -gt 400) { $needCharMake = $false }
+
+          # Always restore these from upstream: local copies are truncated / out of date
+          # CharMakeWin needs Configure() + g_pSingleTextInputBox from UIControls.h
+          # and SetRenderViewport from ZzzOpenglUtil.h
+          $filesToRestore = @(
+            @{ Local = "client/src/source/Character/CharMakeWin.cpp"; Upstream = "src/source/Character/CharMakeWin.cpp"; MinLines = 450 },
+            @{ Local = "client/src/source/UI/Legacy/UIControls.h"; Upstream = "src/source/UI/Legacy/UIControls.h"; MinLines = 1500 },
+            @{ Local = "client/src/source/Render/Textures/ZzzOpenglUtil.h"; Upstream = "src/source/Render/Textures/ZzzOpenglUtil.h"; MinLines = 140 }
+          )
+
+          $needRestore = $false
+          foreach ($f in $filesToRestore) {
+            if (-not (Test-Path $f.Local)) {
+              $needRestore = $true
+              break
+            }
+            $lines = (Get-Content $f.Local | Measure-Object -Line).Lines
+            if ($lines -lt $f.MinLines) {
+              $needRestore = $true
+              break
+            }
           }
-          if (-not $needDeps -and -not $needPackets -and -not $needCharMake) {
+
+          if (-not $needDeps -and -not $needPackets -and -not $needRestore) {
             Write-Host "All upstream files already present"
             exit 0
           }
+
           Write-Host "Downloading upstream MuMain archive..."
           $zip = Join-Path $env:RUNNER_TEMP "mumain.zip"
           $out = Join-Path $env:RUNNER_TEMP "mumain-extract"
@@ -94,11 +111,26 @@ jobs:
             Write-Host "Installed missing Dotnet packet files"
           }
 
-          if ($needCharMake) {
-            $cmwSrc = Join-Path $src "src/source/Character/CharMakeWin.cpp"
-            New-Item -ItemType Directory -Force -Path "client/src/source/Character" | Out-Null
-            Copy-Item -Force $cmwSrc $cmw
-            Write-Host "Restored CharMakeWin.cpp from upstream (MU_C16)"
+          foreach ($f in $filesToRestore) {
+            $should = $false
+            if (-not (Test-Path $f.Local)) {
+              $should = $true
+            } else {
+              $lines = (Get-Content $f.Local | Measure-Object -Line).Lines
+              if ($lines -lt $f.MinLines) { $should = $true }
+            }
+            if ($should) {
+              $up = Join-Path $src $f.Upstream
+              if (-not (Test-Path $up)) {
+                Write-Error "Upstream file missing: $($f.Upstream)"
+                exit 1
+              }
+              $dir = Split-Path $f.Local -Parent
+              New-Item -ItemType Directory -Force -Path $dir | Out-Null
+              Copy-Item -Force $up $f.Local
+              $newLines = (Get-Content $f.Local | Measure-Object -Line).Lines
+              Write-Host "Restored $($f.Local) from upstream ($newLines lines)"
+            }
           }
 
       - name: Setup .NET 10
