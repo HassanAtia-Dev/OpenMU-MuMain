@@ -116,12 +116,13 @@ if (WIN32)
   )
 endif()
 
-# --- Wire-size generated header (WSclient.h includes it) ---------------------
+# --- .NET tooling (shared by wire-sizes + ResxGen) ---------------------------
 find_program(DOTNET_EXECUTABLE NAMES dotnet.exe dotnet)
 set(MU_NUGET_CACHE_DIR "${CMAKE_SOURCE_DIR}/.nuget" CACHE PATH "NuGet package cache")
 file(MAKE_DIRECTORY "${MU_NUGET_CACHE_DIR}")
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
-# Match ClientLibrary package version (0.9.9 in this fork).
+# --- Wire-size generated header (WSclient.h includes it) ---------------------
 set(OPENMU_PACKETS_VERSION "0.9.9" CACHE STRING
     "Version of MUnique.OpenMU.Network.Packets for packet XML")
 set(OPENMU_PACKETS_XML
@@ -152,7 +153,6 @@ endif()
 
 set(WIRE_SIZES_GEN_SCRIPT "${REPO_ROOT}/tools/gen_wire_sizes.py")
 set(WIRE_SIZES_GEN_HEADER "${CMAKE_BINARY_DIR}/generated/Network/Server/wire_sizes.generated.h")
-find_package(Python3 COMPONENTS Interpreter REQUIRED)
 add_custom_command(
   OUTPUT "${WIRE_SIZES_GEN_HEADER}"
   COMMAND "${Python3_EXECUTABLE}" "${WIRE_SIZES_GEN_SCRIPT}"
@@ -165,6 +165,54 @@ add_custom_command(
 )
 add_custom_target(GenWireSizes DEPENDS "${WIRE_SIZES_GEN_HEADER}")
 add_dependencies(MuClient GenWireSizes)
+
+# --- ResxGen: .resx -> C++ I18N accessors (I18N/All.h) -----------------------
+if (DOTNET_EXECUTABLE)
+  set(RESXGEN_PROJ "${REPO_ROOT}/tools/ResxGen/ResxGen.csproj")
+  set(RESX_INPUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Localization")
+  set(RESX_OUTPUT_DIR "${CMAKE_BINARY_DIR}/generated/I18N")
+  file(MAKE_DIRECTORY "${RESX_OUTPUT_DIR}")
+  file(GLOB RESX_FILES CONFIGURE_DEPENDS "${RESX_INPUT_DIR}/*.resx")
+  file(GLOB_RECURSE RESXGEN_SOURCES CONFIGURE_DEPENDS "${REPO_ROOT}/tools/ResxGen/*.cs")
+
+  if (RESX_FILES)
+    set(RESX_GROUPS "")
+    foreach(resx_file IN LISTS RESX_FILES)
+      get_filename_component(resx_name "${resx_file}" NAME_WE)
+      # Group is the part before the first dot in the stem, e.g. Game.en -> Game
+      string(REGEX REPLACE "\\..*$" "" group_name "${resx_name}")
+      list(APPEND RESX_GROUPS "${group_name}")
+    endforeach()
+    list(REMOVE_DUPLICATES RESX_GROUPS)
+
+    set(RESX_GEN_HEADERS "${RESX_OUTPUT_DIR}/All.h")
+    set(RESX_GEN_SOURCES_LIST "${RESX_OUTPUT_DIR}/All.cpp")
+    foreach(group_name IN LISTS RESX_GROUPS)
+      list(APPEND RESX_GEN_HEADERS "${RESX_OUTPUT_DIR}/${group_name}.h")
+      list(APPEND RESX_GEN_SOURCES_LIST "${RESX_OUTPUT_DIR}/${group_name}.cpp")
+    endforeach()
+
+    add_custom_command(
+      OUTPUT ${RESX_GEN_HEADERS} ${RESX_GEN_SOURCES_LIST}
+      COMMAND ${CMAKE_COMMAND} -E env
+              --unset=Platform
+              "NUGET_PACKAGES=${MU_NUGET_CACHE_DIR}"
+              "${DOTNET_EXECUTABLE}" run --project "${RESXGEN_PROJ}" -c Release
+              -- --input "${RESX_INPUT_DIR}" --output "${RESX_OUTPUT_DIR}"
+              --wide-groups Game,Dialog
+      DEPENDS ${RESX_FILES} ${RESXGEN_SOURCES} "${RESXGEN_PROJ}"
+      COMMENT "ResxGen: regenerating C++ I18N accessors from .resx"
+      VERBATIM
+    )
+    add_custom_target(ResxGen DEPENDS ${RESX_GEN_HEADERS} ${RESX_GEN_SOURCES_LIST})
+    add_dependencies(MuClient ResxGen)
+    target_sources(MuClient PRIVATE ${RESX_GEN_SOURCES_LIST})
+  else()
+    message(WARNING "No .resx files under Localization/; I18N headers will be missing")
+  endif()
+else()
+  message(WARNING ".NET SDK not found; ResxGen I18N generation skipped")
+endif()
 
 add_library(MuClient_whole INTERFACE)
 target_link_libraries(MuClient_whole INTERFACE $<LINK_LIBRARY:WHOLE_ARCHIVE,MuClient>)
