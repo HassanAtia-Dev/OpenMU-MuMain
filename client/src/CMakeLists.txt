@@ -90,7 +90,6 @@ endif()
 add_library(MuClient STATIC ${MU_CLIENT_SOURCES})
 target_compile_features(MuClient PUBLIC cxx_std_20)
 
-# MUST be right after add_library so compile of MuClient sources sees these paths.
 target_include_directories(MuClient PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/source"
   "${CMAKE_CURRENT_SOURCE_DIR}/source/App"
@@ -116,6 +115,56 @@ if (WIN32)
     ole32 oleaut32 uuid comdlg32 advapi32
   )
 endif()
+
+# --- Wire-size generated header (WSclient.h includes it) ---------------------
+find_program(DOTNET_EXECUTABLE NAMES dotnet.exe dotnet)
+set(MU_NUGET_CACHE_DIR "${CMAKE_SOURCE_DIR}/.nuget" CACHE PATH "NuGet package cache")
+file(MAKE_DIRECTORY "${MU_NUGET_CACHE_DIR}")
+
+# Match ClientLibrary package version (0.9.9 in this fork).
+set(OPENMU_PACKETS_VERSION "0.9.9" CACHE STRING
+    "Version of MUnique.OpenMU.Network.Packets for packet XML")
+set(OPENMU_PACKETS_XML
+    "${MU_NUGET_CACHE_DIR}/munique.openmu.network.packets/${OPENMU_PACKETS_VERSION}/contentFiles/any/net10.0/ServerToClient/ServerToClientPackets.xml")
+
+if (NOT EXISTS "${OPENMU_PACKETS_XML}")
+  if (NOT DOTNET_EXECUTABLE)
+    message(FATAL_ERROR
+      "wire-size codegen needs MUnique.OpenMU.Network.Packets v${OPENMU_PACKETS_VERSION} "
+      "but no .NET SDK was found to restore it.")
+  endif()
+  message(STATUS "Restoring MUnique.OpenMU.Network.Packets v${OPENMU_PACKETS_VERSION}...")
+  set(_packets_csproj "${CMAKE_CURRENT_SOURCE_DIR}/../ClientLibrary/MUnique.Client.Library.csproj")
+  execute_process(
+    COMMAND ${CMAKE_COMMAND} -E env
+            "NUGET_PACKAGES=${MU_NUGET_CACHE_DIR}"
+            "${DOTNET_EXECUTABLE}" restore "${_packets_csproj}" --nologo
+    RESULT_VARIABLE _restore_rc
+  )
+  if (NOT _restore_rc EQUAL 0)
+    message(FATAL_ERROR "dotnet restore failed (rc=${_restore_rc})")
+  endif()
+  if (NOT EXISTS "${OPENMU_PACKETS_XML}")
+    message(FATAL_ERROR
+      "dotnet restore completed but ServerToClientPackets.xml still missing at\n  ${OPENMU_PACKETS_XML}")
+  endif()
+endif()
+
+set(WIRE_SIZES_GEN_SCRIPT "${REPO_ROOT}/tools/gen_wire_sizes.py")
+set(WIRE_SIZES_GEN_HEADER "${CMAKE_BINARY_DIR}/generated/Network/Server/wire_sizes.generated.h")
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+add_custom_command(
+  OUTPUT "${WIRE_SIZES_GEN_HEADER}"
+  COMMAND "${Python3_EXECUTABLE}" "${WIRE_SIZES_GEN_SCRIPT}"
+          --xml "${OPENMU_PACKETS_XML}"
+          --source-label "MUnique.OpenMU.Network.Packets v${OPENMU_PACKETS_VERSION} (NuGet)"
+          --output "${WIRE_SIZES_GEN_HEADER}"
+  DEPENDS "${WIRE_SIZES_GEN_SCRIPT}" "${OPENMU_PACKETS_XML}"
+  COMMENT "Generating wire_sizes.generated.h from OpenMU packet XML..."
+  VERBATIM
+)
+add_custom_target(GenWireSizes DEPENDS "${WIRE_SIZES_GEN_HEADER}")
+add_dependencies(MuClient GenWireSizes)
 
 add_library(MuClient_whole INTERFACE)
 target_link_libraries(MuClient_whole INTERFACE $<LINK_LIBRARY:WHOLE_ARCHIVE,MuClient>)
