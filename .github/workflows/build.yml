@@ -49,6 +49,27 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
+      # Vendored headers (GLEW, turbojpeg, ...) are not shipped in this fork.
+      # Pull them from upstream MuMain so source builds can compile.
+      - name: Fetch client dependencies from upstream MuMain
+        shell: pwsh
+        run: |
+          $deps = "client/src/dependencies"
+          if (-not (Test-Path "$deps/include/gl/glew.h")) {
+            Write-Host "Fetching src/dependencies from sven-n/MuMain..."
+            git clone --depth 1 --filter=blob:none --sparse https://github.com/sven-n/MuMain.git "$env:RUNNER_TEMP/mumain"
+            Push-Location "$env:RUNNER_TEMP/mumain"
+            git sparse-checkout set src/dependencies
+            git checkout
+            Pop-Location
+            New-Item -ItemType Directory -Force -Path "client/src" | Out-Null
+            Copy-Item -Recurse -Force "$env:RUNNER_TEMP/mumain/src/dependencies" "client/src/dependencies"
+            Write-Host "Dependencies installed."
+            Get-ChildItem -Recurse "client/src/dependencies" | Select-Object -First 20 FullName
+          } else {
+            Write-Host "dependencies already present, skipping fetch"
+          }
+
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
