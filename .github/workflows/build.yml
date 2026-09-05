@@ -46,29 +46,47 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      - name: Fetch client dependencies from upstream MuMain
+      - name: Fetch missing client files from upstream MuMain
         shell: pwsh
         run: |
-          $glew = "client/src/dependencies/include/gl/glew.h"
-          if (Test-Path $glew) {
-            Write-Host "dependencies already present"
+          $needDeps = -not (Test-Path "client/src/dependencies/include/gl/glew.h")
+          $needPackets = -not (Test-Path "client/src/source/Dotnet/PacketFunctions_ChatServer.h")
+          if (-not $needDeps -and -not $needPackets) {
+            Write-Host "All upstream files already present"
             exit 0
           }
-          Write-Host "Downloading dependencies from sven-n/MuMain..."
+          Write-Host "Downloading upstream MuMain archive..."
           $zip = Join-Path $env:RUNNER_TEMP "mumain.zip"
           $out = Join-Path $env:RUNNER_TEMP "mumain-extract"
           Invoke-WebRequest -Uri "https://github.com/sven-n/MuMain/archive/refs/heads/main.zip" -OutFile $zip
           Expand-Archive -Path $zip -DestinationPath $out -Force
-          $src = Get-ChildItem $out -Directory | Select-Object -First 1
-          $depsSrc = Join-Path $src.FullName "src/dependencies"
-          if (-not (Test-Path (Join-Path $depsSrc "include/gl/glew.h"))) {
-            Write-Error "Failed to locate src/dependencies in upstream archive"
-            exit 1
+          $src = (Get-ChildItem $out -Directory | Select-Object -First 1).FullName
+
+          if ($needDeps) {
+            $depsSrc = Join-Path $src "src/dependencies"
+            if (-not (Test-Path (Join-Path $depsSrc "include/gl/glew.h"))) {
+              Write-Error "src/dependencies missing in upstream archive"
+              exit 1
+            }
+            New-Item -ItemType Directory -Force -Path "client/src" | Out-Null
+            Copy-Item -Recurse -Force $depsSrc "client/src/dependencies"
+            Write-Host "Installed client/src/dependencies"
           }
-          New-Item -ItemType Directory -Force -Path "client/src" | Out-Null
-          Copy-Item -Recurse -Force $depsSrc "client/src/dependencies"
-          Write-Host "Installed:"
-          Get-ChildItem -Recurse "client/src/dependencies/include" | Select-Object -First 15 FullName
+
+          if ($needPackets) {
+            $dotnetSrc = Join-Path $src "src/source/Dotnet"
+            $dotnetDst = "client/src/source/Dotnet"
+            New-Item -ItemType Directory -Force -Path $dotnetDst | Out-Null
+            # Copy generated packet headers/sources that this fork does not ship
+            Get-ChildItem $dotnetSrc -File | ForEach-Object {
+              $dest = Join-Path $dotnetDst $_.Name
+              if (-not (Test-Path $dest)) {
+                Copy-Item $_.FullName $dest
+                Write-Host "  + $($_.Name)"
+              }
+            }
+            Write-Host "Installed missing Dotnet packet files"
+          }
 
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
