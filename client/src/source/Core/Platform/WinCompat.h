@@ -16,6 +16,9 @@
 #ifdef _WIN32
 
 #include <windows.h>
+// .NET interop expects UTF-16 (char16_t). On Windows wchar_t is UTF-16; MinGW
+// still treats wchar_t and char16_t as distinct types, so callers must cast.
+#define MU_C16(s) reinterpret_cast<const char16_t*>(s)
 
 #else  // ---- non-Windows: minimal Win32 type shims -------------------------
 
@@ -23,6 +26,7 @@
 #include <cstddef>
 #include <cstring>       // memset for ZeroMemory
 #include <type_traits>   // underlying_type for DEFINE_ENUM_FLAG_OPERATORS
+#include <string>
 
 // Fixed-width scalar aliases. Widths match the Windows definitions (DWORD/LONG
 // are 32-bit there, unlike `long` on LP64 Linux) so struct layouts stay stable.
@@ -46,8 +50,6 @@ typedef wchar_t   WCHAR;  // 32-bit here vs 16-bit on Windows; width handled at 
 typedef void      VOID;
 typedef DWORD     COLORREF;
 
-// MSVC fixed-width keyword aliases (gcc/clang lack these). Defined as macros,
-// not typedefs, so the common `unsigned __int64` form stays valid.
 #ifndef __int64
 #define __int64 long long
 #endif
@@ -61,7 +63,6 @@ typedef DWORD     COLORREF;
 #define __int8 char
 #endif
 
-// Pointer-sized message/param/int types.
 typedef uintptr_t UINT_PTR;
 typedef intptr_t  INT_PTR;
 typedef intptr_t  LONG_PTR;
@@ -73,7 +74,6 @@ typedef intptr_t  LRESULT;
 typedef LONG      HRESULT;
 typedef BYTE      BOOLEAN;
 
-// TCHAR maps to the wide character set (the engine builds UNICODE).
 typedef WCHAR     TCHAR;
 typedef WCHAR*    LPTSTR;
 typedef const WCHAR* LPCTSTR;
@@ -84,8 +84,6 @@ typedef const WCHAR* LPCTSTR;
 #define TEXT(x) L##x
 #endif
 
-// Opaque handles. Each is a distinct incompatible pointer type (as on Windows
-// via DECLARE_HANDLE) so overloads on different handle types don't collapse.
 #define DECLARE_HANDLE(name) struct name##__ { int unused; }; typedef struct name##__ *name
 typedef void* HANDLE;
 DECLARE_HANDLE(HWND);
@@ -103,7 +101,6 @@ DECLARE_HANDLE(HGDIOBJ);
 DECLARE_HANDLE(HKEY);
 DECLARE_HANDLE(HIMC);
 
-// Pointer aliases.
 typedef void*           PVOID;
 typedef void*           LPVOID;
 typedef const void*     LPCVOID;
@@ -118,18 +115,15 @@ typedef DWORD*          LPDWORD;
 typedef LONG*           LPLONG;
 typedef BOOL*           LPBOOL;
 
-// Small structs used in declarations.
 typedef struct tagPOINT { LONG x, y; } POINT, * LPPOINT;
 typedef const POINT* LPCPOINT;
 typedef struct tagSIZE { LONG cx, cy; } SIZE, * LPSIZE;
 typedef struct tagRECT { LONG left, top, right, bottom; } RECT, * LPRECT;
 typedef const RECT* LPCRECT;
 
-// SEH record, only ever used as an opaque pointer parameter off Windows.
 struct _EXCEPTION_POINTERS;
 typedef struct _EXCEPTION_POINTERS* PEXCEPTION_POINTERS;
 
-// Async-I/O struct referenced by a few function declarations (minwinbase.h).
 typedef struct _OVERLAPPED {
     ULONG_PTR Internal;
     ULONG_PTR InternalHigh;
@@ -137,9 +131,6 @@ typedef struct _OVERLAPPED {
     HANDLE    hEvent;
 } OVERLAPPED, * LPOVERLAPPED;
 
-// Bitwise operators for scoped flag enums (winnt.h). The engine's flag enums
-// invoke this right after their definition; off Windows we provide the same
-// operator set, deducing the integer width from the enum's underlying type.
 #define DEFINE_ENUM_FLAG_OPERATORS(ENUMTYPE) \
 inline constexpr ENUMTYPE operator | (ENUMTYPE a, ENUMTYPE b) { using T = std::underlying_type_t<ENUMTYPE>; return static_cast<ENUMTYPE>(static_cast<T>(a) | static_cast<T>(b)); } \
 inline ENUMTYPE& operator |= (ENUMTYPE& a, ENUMTYPE b) { a = a | b; return a; } \
@@ -149,7 +140,6 @@ inline constexpr ENUMTYPE operator ^ (ENUMTYPE a, ENUMTYPE b) { using T = std::u
 inline ENUMTYPE& operator ^= (ENUMTYPE& a, ENUMTYPE b) { a = a ^ b; return a; } \
 inline constexpr ENUMTYPE operator ~ (ENUMTYPE a) { using T = std::underlying_type_t<ENUMTYPE>; return static_cast<ENUMTYPE>(~static_cast<T>(a)); }
 
-// Calling-convention / annotation macros: no-ops off Windows.
 #ifndef __stdcall
 #define __stdcall
 #endif
@@ -188,9 +178,6 @@ inline constexpr ENUMTYPE operator ~ (ENUMTYPE a) { using T = std::underlying_ty
 #define MAX_PATH 260
 #endif
 
-// ---- Constants & macros (values match the Win32 SDK) ------------------------
-
-// Virtual-key codes (winuser.h). The input layer maps these onto SDL.
 #define VK_LBUTTON   0x01
 #define VK_RBUTTON   0x02
 #define VK_MBUTTON   0x04
@@ -227,7 +214,6 @@ inline constexpr ENUMTYPE operator ~ (ENUMTYPE a) { using T = std::underlying_ty
 #define VK_F11       0x7A
 #define VK_F12       0x7B
 
-// Window messages (winuser.h). App-defined WM_USER+n messages live elsewhere.
 #define WM_USER          0x0400
 #define WM_DESTROY       0x0002
 #define WM_SIZE          0x0005
@@ -244,15 +230,12 @@ inline constexpr ENUMTYPE operator ~ (ENUMTYPE a) { using T = std::underlying_ty
 #define WM_IME_CONTROL   0x0283
 #define WM_DISPLAYCHANGE 0x007E
 
-// MessageBox flags (winuser.h).
 #define MB_OK              0x00000000
 #define MB_YESNO           0x00000004
 #define MB_ICONERROR       0x00000010
 #define MB_ICONSTOP        0x00000010
 #define MB_ICONEXCLAMATION 0x00000030
 
-// Window styles (winuser.h). SDL owns the real window; these let the legacy
-// Win32 window/resolution code compile (it is stubbed out at the call level).
 #ifndef WS_OVERLAPPED
 #define WS_OVERLAPPED   0x00000000L
 #define WS_POPUP        0x80000000L
@@ -264,7 +247,6 @@ inline constexpr ENUMTYPE operator ~ (ENUMTYPE a) { using T = std::underlying_ty
 #define WS_CLIPCHILDREN 0x02000000L
 #endif
 
-// SetWindowPos flags + insert-after handles (winuser.h).
 #ifndef SWP_NOSIZE
 #define SWP_NOSIZE      0x0001
 #define SWP_NOMOVE      0x0002
@@ -287,7 +269,6 @@ inline constexpr ENUMTYPE operator ~ (ENUMTYPE a) { using T = std::underlying_ty
 #define SW_SHOW         5
 #endif
 
-// ChangeDisplaySettings / DEVMODE (winuser.h / wingdi.h).
 #ifndef CDS_FULLSCREEN
 #define CDS_FULLSCREEN  0x00000004
 #endif
@@ -302,7 +283,6 @@ inline constexpr ENUMTYPE operator ~ (ENUMTYPE a) { using T = std::underlying_ty
 #define DM_DISPLAYFREQUENCY 0x00400000L
 #endif
 
-// PeekMessage flag, stock-object id (winuser.h / wingdi.h).
 #ifndef IMN_SETCONVERSIONMODE
 #define IMN_SETCONVERSIONMODE 0x0006
 #define IMN_SETSENTENCEMODE   0x0007
@@ -314,19 +294,16 @@ inline constexpr ENUMTYPE operator ~ (ENUMTYPE a) { using T = std::underlying_ty
 #define BLACK_BRUSH     4
 #endif
 
-// MIDI sequencer mapper (mmsystem.h).
 #ifndef MCI_SEQ_MAPPER
 #define MCI_SEQ_MAPPER 0xFFFFu
 #endif
 
-// MSVC keyword / fixed-width aliases.
 #ifndef __forceinline
 #define __forceinline inline
 #endif
 typedef uint64_t u_int64;
 typedef int64_t  INT64;
 
-// Console attributes / standard handles (wincon.h).
 #define FOREGROUND_BLUE      0x0001
 #define FOREGROUND_GREEN     0x0002
 #define FOREGROUND_RED       0x0004
@@ -335,7 +312,6 @@ typedef int64_t  INT64;
 #define STD_OUTPUT_HANDLE    (static_cast<DWORD>(-11))
 #define STD_ERROR_HANDLE     (static_cast<DWORD>(-12))
 
-// _splitpath component sizes (stdlib.h).
 #ifndef _MAX_PATH
 #define _MAX_PATH   260
 #endif
@@ -352,7 +328,6 @@ typedef int64_t  INT64;
 #define _MAX_EXT    256
 #endif
 
-// COM-style result codes.
 #ifndef ERROR_SUCCESS
 #define ERROR_SUCCESS 0L
 #endif
@@ -378,7 +353,6 @@ typedef int64_t  INT64;
 #define INVALID_HANDLE_VALUE (reinterpret_cast<HANDLE>(static_cast<LONG_PTR>(-1)))
 #endif
 
-// Word/byte/color helper macros (minwindef.h / wingdi.h).
 #ifndef LOWORD
 #define LOWORD(l)    (static_cast<WORD>(static_cast<uintptr_t>(l) & 0xffff))
 #endif
@@ -404,20 +378,14 @@ typedef int64_t  INT64;
 #define GetBValue(rgb) (static_cast<BYTE>((rgb) >> 16))
 #endif
 
-// Memory fill helper.
 #ifndef ZeroMemory
 #define ZeroMemory(dst, len) std::memset((dst), 0, (len))
 #endif
 
-// Element count of a stack array (MSVC _countof). Type-safe: a pointer argument
-// fails to match the array helper and is a compile error, not a silent miscount.
 #ifndef _countof
 template <typename T, std::size_t N> char (&mu_countof_helper(T (&)[N]))[N];
 #define _countof(arr) (sizeof(mu_countof_helper(arr)))
 #endif
-
-// ---- GDI rect/point helpers (winuser.h) -------------------------------------
-// Pure value-type helpers with no platform dependency; same semantics as Win32.
 
 inline BOOL SetRect(RECT* lprc, int left, int top, int right, int bottom)
 {
@@ -426,7 +394,6 @@ inline BOOL SetRect(RECT* lprc, int left, int top, int right, int bottom)
     return TRUE;
 }
 
-// Point is inside the rectangle's [left,right) x [top,bottom) half-open range.
 inline BOOL PtInRect(const RECT* lprc, POINT pt)
 {
     if (!lprc) return FALSE;
@@ -434,7 +401,6 @@ inline BOOL PtInRect(const RECT* lprc, POINT pt)
             pt.y >= lprc->top  && pt.y < lprc->bottom) ? TRUE : FALSE;
 }
 
-// Intersection of two rects into dst; returns FALSE (and empties dst) if none.
 inline BOOL IntersectRect(RECT* dst, const RECT* a, const RECT* b)
 {
     if (!dst || !a || !b) return FALSE;
@@ -451,9 +417,28 @@ inline BOOL IntersectRect(RECT* dst, const RECT* a, const RECT* b)
     return FALSE;
 }
 
-// Legacy Win32 pointer-validity probe. There is no portable equivalent, and the
-// API is deprecated even on Windows; the realistic failure the callers guard
-// against is a null pointer, so report only that as "bad".
 inline BOOL IsBadReadPtr(const void* lp, UINT_PTR /*ucb*/) { return lp ? FALSE : TRUE; }
+
+// UTF-32 wchar_t (Linux/macOS) -> UTF-16 for .NET interop. Returns a temporary
+// u16string; callers must not store the pointer beyond the full-expression.
+inline std::u16string mu_wchar_to_char16(const wchar_t* text)
+{
+    std::u16string result;
+    if (!text) return result;
+    for (const wchar_t* p = text; *p; ++p)
+    {
+        const uint32_t ch = static_cast<uint32_t>(*p);
+        if (ch <= 0xFFFF)
+            result.push_back(static_cast<char16_t>(ch));
+        else
+        {
+            const uint32_t v = ch - 0x10000;
+            result.push_back(static_cast<char16_t>(0xD800 + (v >> 10)));
+            result.push_back(static_cast<char16_t>(0xDC00 + (v & 0x3FF)));
+        }
+    }
+    return result;
+}
+#define MU_C16(s) mu_wchar_to_char16(s).c_str()
 
 #endif  // _WIN32
