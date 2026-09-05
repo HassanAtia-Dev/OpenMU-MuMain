@@ -51,7 +51,14 @@ jobs:
         run: |
           $needDeps = -not (Test-Path "client/src/dependencies/include/gl/glew.h")
           $needPackets = -not (Test-Path "client/src/source/Dotnet/PacketFunctions_ChatServer.h")
-          if (-not $needDeps -and -not $needPackets) {
+          # Always restore CharMakeWin from upstream (has MU_C16; local copy was truncated)
+          $needCharMake = $true
+          $cmw = "client/src/source/Character/CharMakeWin.cpp"
+          if (Test-Path $cmw) {
+            $lineCount = (Get-Content $cmw | Measure-Object -Line).Lines
+            if ($lineCount -gt 400) { $needCharMake = $false }
+          }
+          if (-not $needDeps -and -not $needPackets -and -not $needCharMake) {
             Write-Host "All upstream files already present"
             exit 0
           }
@@ -77,7 +84,6 @@ jobs:
             $dotnetSrc = Join-Path $src "src/source/Dotnet"
             $dotnetDst = "client/src/source/Dotnet"
             New-Item -ItemType Directory -Force -Path $dotnetDst | Out-Null
-            # Copy generated packet headers/sources that this fork does not ship
             Get-ChildItem $dotnetSrc -File | ForEach-Object {
               $dest = Join-Path $dotnetDst $_.Name
               if (-not (Test-Path $dest)) {
@@ -86,6 +92,13 @@ jobs:
               }
             }
             Write-Host "Installed missing Dotnet packet files"
+          }
+
+          if ($needCharMake) {
+            $cmwSrc = Join-Path $src "src/source/Character/CharMakeWin.cpp"
+            New-Item -ItemType Directory -Force -Path "client/src/source/Character" | Out-Null
+            Copy-Item -Force $cmwSrc $cmw
+            Write-Host "Restored CharMakeWin.cpp from upstream (MU_C16)"
           }
 
       - name: Setup .NET 10
