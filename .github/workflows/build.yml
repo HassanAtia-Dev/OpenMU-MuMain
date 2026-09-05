@@ -1,4 +1,4 @@
-name: Build OpenMU + MuMain
+name: Build OpenMU Server
 
 on:
   push:
@@ -30,135 +30,17 @@ jobs:
         working-directory: server/src
         run: dotnet build Startup/MUnique.OpenMU.Startup.csproj --configuration Release --no-restore
 
-  client:
-    name: Client Windows (${{ matrix.arch }})
-    runs-on: windows-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [x86, x64]
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 1
-
-      - name: Fetch missing client files from upstream MuMain
-        shell: pwsh
+      - name: Publish Server
+        working-directory: server/src
         run: |
-          $needDeps = -not (Test-Path "client/src/dependencies/include/gl/glew.h")
-          $needPackets = -not (Test-Path "client/src/source/Dotnet/PacketFunctions_ChatServer.h")
+          dotnet publish Startup/MUnique.OpenMU.Startup.csproj \
+            --configuration Release \
+            --no-build \
+            --output ${{ github.workspace }}/publish
 
-          # Always restore these from upstream: local copies are truncated / out of date
-          # CharMakeWin needs Configure() + g_pSingleTextInputBox from UIControls.h
-          # and SetRenderViewport from ZzzOpenglUtil.h
-          $filesToRestore = @(
-            @{ Local = "client/src/source/Character/CharMakeWin.cpp"; Upstream = "src/source/Character/CharMakeWin.cpp"; MinLines = 450 },
-            @{ Local = "client/src/source/UI/Legacy/UIControls.h"; Upstream = "src/source/UI/Legacy/UIControls.h"; MinLines = 1500 },
-            @{ Local = "client/src/source/Render/Textures/ZzzOpenglUtil.h"; Upstream = "src/source/Render/Textures/ZzzOpenglUtil.h"; MinLines = 140 }
-          )
-
-          $needRestore = $false
-          foreach ($f in $filesToRestore) {
-            if (-not (Test-Path $f.Local)) {
-              $needRestore = $true
-              break
-            }
-            $lines = (Get-Content $f.Local | Measure-Object -Line).Lines
-            if ($lines -lt $f.MinLines) {
-              $needRestore = $true
-              break
-            }
-          }
-
-          if (-not $needDeps -and -not $needPackets -and -not $needRestore) {
-            Write-Host "All upstream files already present"
-            exit 0
-          }
-
-          Write-Host "Downloading upstream MuMain archive..."
-          $zip = Join-Path $env:RUNNER_TEMP "mumain.zip"
-          $out = Join-Path $env:RUNNER_TEMP "mumain-extract"
-          Invoke-WebRequest -Uri "https://github.com/sven-n/MuMain/archive/refs/heads/main.zip" -OutFile $zip
-          Expand-Archive -Path $zip -DestinationPath $out -Force
-          $src = (Get-ChildItem $out -Directory | Select-Object -First 1).FullName
-
-          if ($needDeps) {
-            $depsSrc = Join-Path $src "src/dependencies"
-            if (-not (Test-Path (Join-Path $depsSrc "include/gl/glew.h"))) {
-              Write-Error "src/dependencies missing in upstream archive"
-              exit 1
-            }
-            New-Item -ItemType Directory -Force -Path "client/src" | Out-Null
-            Copy-Item -Recurse -Force $depsSrc "client/src/dependencies"
-            Write-Host "Installed client/src/dependencies"
-          }
-
-          if ($needPackets) {
-            $dotnetSrc = Join-Path $src "src/source/Dotnet"
-            $dotnetDst = "client/src/source/Dotnet"
-            New-Item -ItemType Directory -Force -Path $dotnetDst | Out-Null
-            Get-ChildItem $dotnetSrc -File | ForEach-Object {
-              $dest = Join-Path $dotnetDst $_.Name
-              if (-not (Test-Path $dest)) {
-                Copy-Item $_.FullName $dest
-                Write-Host "  + $($_.Name)"
-              }
-            }
-            Write-Host "Installed missing Dotnet packet files"
-          }
-
-          foreach ($f in $filesToRestore) {
-            $should = $false
-            if (-not (Test-Path $f.Local)) {
-              $should = $true
-            } else {
-              $lines = (Get-Content $f.Local | Measure-Object -Line).Lines
-              if ($lines -lt $f.MinLines) { $should = $true }
-            }
-            if ($should) {
-              $up = Join-Path $src $f.Upstream
-              if (-not (Test-Path $up)) {
-                Write-Error "Upstream file missing: $($f.Upstream)"
-                exit 1
-              }
-              $dir = Split-Path $f.Local -Parent
-              New-Item -ItemType Directory -Force -Path $dir | Out-Null
-              Copy-Item -Force $up $f.Local
-              $newLines = (Get-Content $f.Local | Measure-Object -Line).Lines
-              Write-Host "Restored $($f.Local) from upstream ($newLines lines)"
-            }
-          }
-
-      - name: Setup .NET 10
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Setup CMake
-        uses: lukka/get-cmake@v4.0.3
-        with:
-          cmakeVersion: '3.31.6'
-
-      - name: Setup Ninja
-        uses: seanmiddleditch/gha-setup-ninja@v5
-
-      - name: Configure Client
-        working-directory: client
-        shell: pwsh
-        run: cmake --preset windows-${{ matrix.arch }}
-
-      - name: Build Client
-        working-directory: client
-        shell: pwsh
-        run: cmake --build --preset windows-${{ matrix.arch }}-release --parallel
-
-      - name: Upload Client Artifact
+      - name: Upload Server Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MuMain-${{ matrix.arch }}-Release
-          path: client/out/build/windows-${{ matrix.arch }}/Release/
+          name: OpenMU-Server-Release
+          path: publish/
           if-no-files-found: warn
