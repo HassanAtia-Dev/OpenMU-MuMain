@@ -1,0 +1,2 @@
+# Placeholder: proprietary runtime assets (Data/, fonts/, DLLs) are intentionally not shipped.
+# Place your client runtime package here for local full builds.
