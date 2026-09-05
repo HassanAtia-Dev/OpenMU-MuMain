@@ -98,6 +98,20 @@ target_include_directories(MuClient PUBLIC
   "${CMAKE_BINARY_DIR}/generated"
 )
 
+# Match upstream MuMain: force Unicode WinAPI (W variants) so wchar_t* works with
+# CreateFile/LoadLibrary/GetClassName/etc. Critical for MinGW which defaults to ANSI.
+target_compile_definitions(MuClient PUBLIC
+  _LANGUAGE_FOREIGN
+  _LANGUAGE_ENG
+  UNICODE
+  _UNICODE
+  "MU_DOTNET_LIB_EXT=\"${CMAKE_SHARED_LIBRARY_SUFFIX}\""
+  $<$<EQUAL:${CMAKE_SIZEOF_VOID_P},4>:_USE_32BIT_TIME_T>
+  $<$<CONFIG:Debug>:_DEBUG;_FOREIGN_DEBUG>
+  $<$<CONFIG:Release>:NDEBUG;_FOREIGN_NDEBUG;LDS_PATCH_GLOBAL_100520>
+  $<$<BOOL:${ENABLE_EDITOR}>:_EDITOR>
+)
+
 target_link_libraries(MuClient PUBLIC SDL3::SDL3 SDL3_mixer::SDL3_mixer)
 
 if(NOT WIN32)
